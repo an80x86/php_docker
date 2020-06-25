@@ -111,7 +111,6 @@
 		}
 	}
 	
-	
 	/*
 	 * SQL queries
 	 * Get data to display
