@@ -1,13 +1,5 @@
 <?php
 	
-	function mres($value)
-	{
-		$search = array("\\",  "\x00", "\n",  "\r",  "'",  '"', "\x1a");
-		$replace = array("\\\\","\\0","\\n", "\\r", "\'", '\"', "\\Z");
-	
-		return str_replace($search, $replace, $value);
-	}
-
 	/* Array of database columns which should be read and sent back to DataTables. Use a space where
 	 * you want to insert a non-database field (for example a counter or static image)
 	 */
@@ -26,32 +18,31 @@
 	$gaSql['server']     = "mysqldb";
 	
 	
-	$db_info = array(
-		"db_host" => $gaSql['server'],
-		"db_port" => "3306",
-		"db_user" => $gaSql['user'],
-		"db_pass" => $gaSql['password'],
-		"db_name" => $gaSql['db'],
-		"db_charset" => "UTF-8");
-
-	$instance = new PDO(
-			"mysql:host=".$db_info['db_host'].';port='.$db_info['db_port'].';dbname='.$db_info['db_name'], $db_info['db_user'], $db_info['db_pass'],
-		array(
-			PDO::ATTR_TIMEOUT => 600
-		)
-	);
-	$instance->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_SILENT); 
-	$instance->exec("set names utf8"); 
-
+	/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+	 * If you just want to use the basic configuration for DataTables with PHP server-side, there is
+	 * no need to edit below this line
+	 */
+	
+	/* 
+	 * MySQL connection
+	 */
+	$gaSql['link'] =  mysqli_connect( $gaSql['server'], $gaSql['user'], $gaSql['password']  ) or
+		die( 'Could not open connection to server' );
+	$gaSql['link']->set_charset("utf8");
+	
+	mysqli_select_db( $gaSql['link'], $gaSql['db'] ) or 
+		die( 'Could not select database '. $gaSql['db'] );
+		
 	/* 
 	 * Paging
 	 */
 	$sLimit = "";
 	if ( isset( $_GET['iDisplayStart'] ) && $_GET['iDisplayLength'] != '-1' )
 	{
-		$sLimit = "LIMIT ". mres( $_GET['iDisplayStart'] ).", ".
-		mres( $_GET['iDisplayLength'] );
+		$sLimit = "LIMIT ". $gaSql['link']->real_escape_string( $_GET['iDisplayStart'] ).", ".
+		$gaSql['link']->real_escape_string( $_GET['iDisplayLength'] );
 	}
+	
 	
 	/*
 	 * Ordering
@@ -64,7 +55,7 @@
 			if ( $_GET[ 'bSortable_'.intval($_GET['iSortCol_'.$i]) ] == "true" )
 			{
 				$sOrder .= $aColumns[ intval( $_GET['iSortCol_'.$i] ) ]."
-				 	".mres( $_GET['sSortDir_'.$i] ) .", ";
+				 	".$gaSql['link']->real_escape_string( $_GET['sSortDir_'.$i] ) .", ";
 			}
 		}
 		
@@ -87,7 +78,7 @@
 		$sWhere = "WHERE (";
 		for ( $i=0 ; $i<count($aColumns) ; $i++ )
 		{
-			$sWhere .= $aColumns[$i]." LIKE '%".mres( $_GET['sSearch'] )."%' OR ";
+			$sWhere .= $aColumns[$i]." LIKE '%".$gaSql['link']->real_escape_string( $_GET['sSearch'] )."%' OR ";
 		}
 		$sWhere = substr_replace( $sWhere, "", -3 );
 		$sWhere .= ')';
@@ -106,7 +97,7 @@
 			{
 				$sWhere .= " AND ";
 			}
-			$sWhere .= $aColumns[$i]." LIKE '%".mres($_GET['sSearch_'.$i])."%' ";
+			$sWhere .= $aColumns[$i]." LIKE '%".mysql_real_escape_string($_GET['sSearch_'.$i])."%' ";
 		}
 	}
 
@@ -121,34 +112,24 @@
 		$sOrder
 		$sLimit
 	";
-
-	//$rResult = mysqli_query(  $gaSql['link'], $sQuery) or die(mysqli_error($gaSql['link']));
-	$rResult = $instance->query($sQuery);
-
+	$rResult = mysqli_query(  $gaSql['link'], $sQuery) or die(mysqli_error($gaSql['link']));
+	
 	/* Data set length after filtering */
 	$sQuery = "
 		SELECT FOUND_ROWS()
 	";
-
-	//$rResultFilterTotal = mysqli_query( $gaSql['link'], $sQuery ) or die(mysqli_error($gaSql['link']));
-	//$aResultFilterTotal = mysqli_fetch_array($rResultFilterTotal);
-	//$iFilteredTotal = $aResultFilterTotal[0];
-	$rResultFilterTotal = $instance->prepare($sQuery);
-    $rResultFilterTotal->execute();
-    $iFilteredTotal = $rResultFilterTotal->fetchColumn();
-
-
+	$rResultFilterTotal = mysqli_query( $gaSql['link'], $sQuery ) or die(mysqli_error($gaSql['link']));
+	$aResultFilterTotal = mysqli_fetch_array($rResultFilterTotal);
+	$iFilteredTotal = $aResultFilterTotal[0];
+	
 	/* Total data set length */
 	$sQuery = "
 		SELECT COUNT(".$sIndexColumn.")
 		FROM   $sTable
 	";
-	//$rResultTotal = mysqli_query( $gaSql['link'], $sQuery) or die(mysqli_error($gaSql['link']));
-	//$aResultTotal = mysqli_fetch_array($rResultTotal);
-	//$iTotal = $aResultTotal[0];
-	$rResultFilterTotal = $instance->prepare($sQuery);
-    $rResultFilterTotal->execute();
-    $iTotal = $rResultFilterTotal->fetchColumn();
+	$rResultTotal = mysqli_query( $gaSql['link'], $sQuery) or die(mysqli_error($gaSql['link']));
+	$aResultTotal = mysqli_fetch_array($rResultTotal);
+	$iTotal = $aResultTotal[0];
 
 	/*
 	 * Output
@@ -159,8 +140,7 @@
 		"iTotalDisplayRecords" => $iFilteredTotal,
 		"aaData" => array()
 	);
-
-	/*
+	
 	while ( $aRow = mysqli_fetch_array( $rResult ) )
 	{
 		$row = array();
@@ -168,31 +148,12 @@
 		{
 			if ( $aColumns[$i] == "version" )
 			{
-				// Special output formatting for 'version' column 
+				/* Special output formatting for 'version' column */
 				$row[] = ($aRow[ $aColumns[$i] ]=="0") ? '-' : $aRow[ $aColumns[$i] ];
 			}
 			else if ( $aColumns[$i] != ' ' )
 			{
-				// General output
-				$row[] = $aRow[ $aColumns[$i] ];
-			}
-		}
-		$output['aaData'][] = $row;
-	}
-	*/
-
-	foreach($rResult as $aRow) {
-		$row = array();
-		for ( $i=0 ; $i<count($aColumns) ; $i++ )
-		{
-			if ( $aColumns[$i] == "version" )
-			{
-				// Special output formatting for 'version' column 
-				$row[] = ($aRow[ $aColumns[$i] ]=="0") ? '-' : $aRow[ $aColumns[$i] ];
-			}
-			else if ( $aColumns[$i] != ' ' )
-			{
-				// General output
+				/* General output */
 				$row[] = $aRow[ $aColumns[$i] ];
 			}
 		}
